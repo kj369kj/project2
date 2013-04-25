@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<diagram program="umlet" version="11.5.1">
+  <zoom_level>10</zoom_level>
+  <element>
+    <type>com.umlet.element.Class</type>
+    <coordinates>
+      <x>180</x>
+      <y>190</y>
+      <w>280</w>
+      <h>190</h>
+    </coordinates>
+    <panel_attributes>SysCatalog
+&lt;&lt;Serialized&gt;&gt;
+--
+-Vector&lt;TableInfo&gt; listOfTables;
+-serializationVariables whatever they are
+--
++getTableInfo(String tableName):TableInfo
++addTable(TableInfo newTable):boolean
++removeTable(String TableName):boolean
++serlize(): some serialization stuff
+</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <type>com.umlet.element.Class</type>
+    <coordinates>
+      <x>580</x>
+      <y>190</y>
+      <w>330</w>
+      <h>190</h>
+    </coordinates>
+    <panel_attributes>TableInfo
+--
+-String tableName;
+-Vector&lt;Attribute&gt; listOfAttributes;
+
+-Vector&lt;RecordLocation&gt; recordLocations; 
+--
++TableInfo(String tableName,
+   Vector&lt;Attribute&gt; listOfAttributes)
++addAttribute(Attribute) :void
++removeAttribute(String name,
+                             String type) :boolean
++getAttributes() :Vector&lt;Attribute&gt;
+</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <type>com.umlet.element.Class</type>
+    <coordinates>
+      <x>1010</x>
+      <y>190</y>
+      <w>230</w>
+      <h>190</h>
+    </coordinates>
+    <panel_attributes>Attribute
+--
+-String attributeName;
+-String attributeType;
+-Int attributeLength; default 0
+--
++Attribute(String name, String type, 
+                 Int Length)
++Attribute(String name, String type)
++getName():String
++getType():String
++getLength():Int</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <type>com.umlet.element.Class</type>
+    <coordinates>
+      <x>600</x>
+      <y>460</y>
+      <w>270</w>
+      <h>220</h>
+    </coordinates>
+    <panel_attributes>RecordLocation
+--
+-String fileName;
+-Int pageNumber?
+-Int recordOffset
+--
++RecordLocation(String fileName,
+            Int pageNumber, Int recordOffset)
++getFileName():String
++getPageNumber():int
++getRecordOffset():int
++changeLocation(Int pageNumber, 
+                             int offset)</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <type>com.umlet.element.Class</type>
+    <coordinates>
+      <x>680</x>
+      <y>80</y>
+      <w>250</w>
+      <h>90</h>
+    </coordinates>
+    <panel_attributes>bt=.
+Hashmap not needed simple vector
+will work. The n'th/tid will be its position
+within the vector, if it is remapped the 
+new position is present in file.</panel_attributes>
+    <additional_attributes/>
+  </element>
+  <element>
+    <type>com.umlet.element.Relation</type>
+    <coordinates>
+      <x>610</x>
+      <y>90</y>
+      <w>90</w>
+      <h>120</h>
+    </coordinates>
+    <panel_attributes>lt=&lt;&lt;-</panel_attributes>
+    <additional_attributes>70;30;30;30;30;100</additional_attributes>
+  </element>
+  <element>
+    <type>com.umlet.element.Relation</type>
+    <coordinates>
+      <x>430</x>
+      <y>250</y>
+      <w>170</w>
+      <h>50</h>
+    </coordinates>
+    <panel_attributes>lt=&lt;&lt;&lt;&lt;-
+m1=1
+m2=n</panel_attributes>
+    <additional_attributes>30;30;150;30</additional_attributes>
+  </element>
+  <element>
+    <type>com.umlet.element.Relation</type>
+    <coordinates>
+      <x>880</x>
+      <y>260</y>
+      <w>150</w>
+      <h>50</h>
+    </coordinates>
+    <panel_attributes>lt=&lt;&lt;&lt;&lt;-
+m1=1
+m2=n
+</panel_attributes>
+    <additional_attributes>30;30;130;30</additional_attributes>
+  </element>
+  <element>
+    <type>com.umlet.element.Relation</type>
+    <coordinates>
+      <x>710</x>
+      <y>350</y>
+      <w>50</w>
+      <h>130</h>
+    </coordinates>
+    <panel_attributes>lt=&lt;&lt;&lt;&lt;-
+m1= 1
+m2= n
+</panel_attributes>
+    <additional_attributes>30;30;30;110</additional_attributes>
+  </element>
+</diagram>
