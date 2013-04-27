@@ -1,16 +1,10 @@
 #ifndef _pf_h_
 #define _pf_h_
-
+#include <cstdio>
 typedef int RC;
 typedef unsigned PageNum;
 
 #define PF_PAGE_SIZE 4096
-
-
-#include <cstdio>
-#include <iostream>
-#include <math.h>
-using namespace std;
 
 class PF_FileHandle;
 
@@ -43,16 +37,11 @@ public:
     RC ReadPage(PageNum pageNum, void *data);                           // Get a specific page
     RC WritePage(PageNum pageNum, const void *data);                    // Write a specific page
     RC AppendPage(const void *data);                                    // Append a specific page
+    void SetPageCount(int x);
     unsigned GetNumberOfPages();                                        // Get the number of pages in the file
-    void setAssociation(FILE *fileAssociation);
-    void removeAssociation();
-    FILE* getAssociation();
-    bool isAssociated();
+    FILE *fileHandled;
 private:
-    FILE *fileAssociation;
-    bool associated;
-    const size_t fourKilabyte = 4096;
-
+    unsigned int pageCount;
  };
 
  #endif

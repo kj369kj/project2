@@ -22,7 +22,7 @@ vector<Attribute> TableInfo::getAttributes(){
 	return listOfAttributes;
 }
 
-int TableInfo::getRecordOffset(int rid)
+int TableInfo::getRecordOffset(RID rid)
 {
 	return recordHash[rid];
 }

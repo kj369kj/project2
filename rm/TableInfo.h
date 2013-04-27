@@ -12,6 +12,23 @@ using namespace std;
 #define TABLEINFO_H_
 
 
+typedef enum { TypeInt = 0, TypeReal, TypeVarChar } AttrType;
+
+typedef unsigned AttrLength;
+
+struct Attribute {
+    string   name;     // attribute name
+    AttrType type;     // attribute type
+    AttrLength length; // attribute length
+};
+
+typedef struct
+{
+  unsigned pageNum;
+  unsigned slotNum;
+} RID;
+
+
 class TableInfo {
 public:
 	TableInfo(string tableName, vector<Attribute> listOfAttributes);
@@ -19,9 +36,9 @@ public:
 	void addAttribute(Attribute attribute);
 	bool removeAttribute(Attribute attribute);
 	vector<Attribute> getAttributes();
-	int getRecordOffset(int rid);
+	int getRecordOffset(RID rid);
 	hash_map<RID,int> getRecordHash();
-	void changeLocation(RID rid, int newLocation)
+	void changeLocation(RID rid, int newLocation);
 	void addRecordLocation(RID rid,int offset);
 
 
