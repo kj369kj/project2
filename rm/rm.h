@@ -6,6 +6,7 @@
 #include <vector>
 #include <ostream>
 #include <stdlib.h>
+#include <bitset>
 
 #include "../pf/pf.h"
 

@@ -77,7 +77,7 @@ RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 
 	//must read in the current page and make appropriate changes
 	//before writing back to disk. Based on data structure discussed in email.
-	void *pageReadIn = malloc(PF_PAGE_SIZE); //malloc allocates memory on ram for storage of data
+	bitset<PF_PAGE_SIZE> pageReadIn; //malloc allocates memory on ram for storage of data
 	fileHandle.ReadPage(rid.pageNum, pageReadIn);
 
 	//now that i have the page i need to make changes to the data to reflect the insert
