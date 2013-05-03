@@ -3,10 +3,12 @@
 #define _rm_h_
 
 #include <string>
+#include <string.h>
 #include <vector>
 #include <ostream>
 #include <stdlib.h>
 #include <bitset>
+//#include <stdio.h>
 
 #include "../pf/pf.h"
 
@@ -127,6 +129,7 @@ public:
 public:
   vector<Tableinfo> getTables();
   int getIndexOfTableNameInListOfTables(const string tableName);
+  short getShortFromPositionInPage(int byteOffset, char curPageData[512]);
 
 
 protected:

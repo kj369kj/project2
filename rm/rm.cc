@@ -70,6 +70,7 @@ RC RM::getAttributes(const string tableName, vector<Attribute> &attrs)
 
 }
 
+
 RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 {
 	PF_FileHandle fileHandle;
@@ -77,18 +78,40 @@ RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 
 	//must read in the current page and make appropriate changes
 	//before writing back to disk. Based on data structure discussed in email.
-	bitset<PF_PAGE_SIZE> pageReadIn; //malloc allocates memory on ram for storage of data
-	fileHandle.ReadPage(rid.pageNum, pageReadIn);
+	char *pageData[PF_PAGE_SIZE/8];  //malloc allocates memory on ram for storage of data
+	fileHandle.ReadPage(rid.pageNum, pageData);
+
 
 	//now that i have the page i need to make changes to the data to reflect the insert
 
 	//need to update N
+		//1. must get the short value from the data to see what N is
+		//2. then need to increment short by 1, store variable for later in function so page can be constructed and written.
+	short numberOfOffsetsN = getShortFromPositionInPage((PF_PAGE_SIZE/8)-2, pageData);
 	//need to calculate space for inserted record; this can probably be done by looking at *data in paramater
 	//need to attach record
+
+	return 0;
 
 
 }
 
+
+
+short RM::getShortFromPositionInPage(int byteOffset, char curPageData[512])
+{
+	//a short is twoBytes go to position and get the two characters which equals two bytes
+
+	//this code was taken from a post on stack overflow
+	//http://stackoverflow.com/questions/8258398/c-how-to-combine-two-signed-8-bit-numbers-to-a-16-bit-short-unexplainable-res
+
+	//for the two characters residing in the N position of our page format
+	unsigned char msb = curPageData[byteOffset];
+	unsigned char lsb = curPageData[byteOffset+1];
+
+	return (msb<<8u)|lsb;
+
+}
 
 int RM::getIndexOfTableNameInListOfTables(const string tableName)
 {

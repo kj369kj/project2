@@ -26,7 +26,13 @@ void printListOfTables(RM *rm)
 void rmTest()
 {
    RM *rm = RM::Instance();
+   PF_Manager *pf = PF_Manager::Instance();
+   PF_FileHandle fileHandle;
+   pf->OpenFile("newTable",fileHandle);
+   void *dataPage;
+   fileHandle.ReadPage(0,dataPage);
 
+   /*
   //create table test;
    //AttrType attrType;
    vector<Attribute> listOfAttributes;
@@ -47,13 +53,15 @@ void rmTest()
 
    Sleep(5000);
    rm->deleteTable("newTable1");
+   rm->deleteTable("newTable");
    cout << "Table newTable1 deleted \n";
 
    printListOfTables(rm);
+   */
 }
 
 int main()
 {
-	rmTest();
+	//rmTest();
 	return 0;
 }
