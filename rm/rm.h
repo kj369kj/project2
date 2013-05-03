@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <ostream>
+#include <stdlib.h>
 
 #include "../pf/pf.h"
 
@@ -121,6 +122,10 @@ public:
 
   RC reorganizeTable(const string tableName);
 
+//helper methods created by student: Jesse
+public:
+  vector<Tableinfo> getTables();
+  int getIndexOfTableNameInListOfTables(const string tableName);
 
 
 protected:
