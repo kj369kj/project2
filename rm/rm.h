@@ -45,6 +45,10 @@ typedef enum { EQ_OP = 0,  // =
            NO_OP       // no condition
 } CompOp;
 
+struct Tableinfo{
+	string tableName;
+	vector<Attribute> listOfAttributes;
+};
 
 # define RM_EOF (-1)  // end of a scan operator
 
@@ -125,6 +129,8 @@ protected:
 
 private:
   static RM *_rm;
+  vector<Tableinfo> listOfTables;
+
 };
 
 #endif
