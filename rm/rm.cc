@@ -78,7 +78,7 @@ RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 
 	//must read in the current page and make appropriate changes
 	//before writing back to disk. Based on data structure discussed in email.
-	char *pageData[PF_PAGE_SIZE/8];  //malloc allocates memory on ram for storage of data
+	char pageData[PF_PAGE_SIZE/8];  //malloc allocates memory on ram for storage of data
 	fileHandle.ReadPage(rid.pageNum, pageData);
 
 
@@ -97,8 +97,13 @@ RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 }
 
 
+void RM::convertShortToCharArray(short shortToConvert, char *charTorReturn)
+{
+	charTorReturn[0] = shortToConvert >> 8;
+	charTorReturn[1] = shortToConvert >> 0;
+}
 
-short RM::getShortFromPositionInPage(int byteOffset, char curPageData[512])
+short RM::getShortFromPositionInPage(int byteOffset, char curPageData[])
 {
 	//a short is twoBytes go to position and get the two characters which equals two bytes
 
@@ -106,10 +111,7 @@ short RM::getShortFromPositionInPage(int byteOffset, char curPageData[512])
 	//http://stackoverflow.com/questions/8258398/c-how-to-combine-two-signed-8-bit-numbers-to-a-16-bit-short-unexplainable-res
 
 	//for the two characters residing in the N position of our page format
-	unsigned char msb = curPageData[byteOffset];
-	unsigned char lsb = curPageData[byteOffset+1];
-
-	return (msb<<8u)|lsb;
+	return (curPageData[byteOffset]<<8)|curPageData[byteOffset+1];
 
 }
 

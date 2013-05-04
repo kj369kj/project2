@@ -129,7 +129,8 @@ public:
 public:
   vector<Tableinfo> getTables();
   int getIndexOfTableNameInListOfTables(const string tableName);
-  short getShortFromPositionInPage(int byteOffset, char curPageData[512]);
+  short getShortFromPositionInPage(int byteOffset, char curPageData[]);
+  void convertShortToCharArray(short shortToConvert, char *charTorReturn);
 
 
 protected:
