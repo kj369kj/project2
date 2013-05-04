@@ -1,8 +1,8 @@
-using namespace std;
+
+#include "rm.h"
+#include <string.h>
 #include <iostream>
 #include <sstream>
-#include <string.h>
-#include "rm.h"
 
 RM* RM::_rm = 0;
 
@@ -17,37 +17,9 @@ RM* RM::Instance()
 RM::RM()
 {
 	pm = PF_Manager::Instance();
-	//Need: Table name (String), Attribute Name (string), Type (int), Length (int)
-	Attribute tableName;
-	tableName.name = "Table Name";
-	tableName.type = TypeVarChar;
-	tableName.length = PF_PAGE_SIZE/16;
-
-	Attribute attributeName;
-	attributeName.name = "Attribute Name";
-	attributeName.type = TypeVarChar;
-	attributeName.length = PF_PAGE_SIZE/16;
-
-	Attribute type;
-	type.name = "Type";
-	type.type = TypeInt;
-	type.length = sizeof(int);
-
-	Attribute length;
-	length.name = "Length";
-	length.type = TypeInt;
-	length.length = sizeof(int);
-
-	vector<Attribute> a;
-	a.push_back(tableName);
-	a.push_back(attributeName);
-	a.push_back(type);
-	a.push_back(length);
-
+	//Create system catalog and set the system catalog handle
 	pm->CreateFile("System_Catalog");
-	createTable("System_Catalog", a);
 	pm->OpenFile("System_Catalog", scHandle);
-
 }
 
 RM::~RM()
@@ -56,6 +28,7 @@ RM::~RM()
 
 RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 {
+	//create a blank page
 	char pageToWrite[PF_PAGE_SIZE];
 	for (int i = 0; i <PF_PAGE_SIZE; i++)
 	{
@@ -63,10 +36,15 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 	}
 	char *pageToWritePointer = (char*) pageToWrite;
 
-	pm->CreateFile(tableName.c_str());
+	//prevent duplicate tables from being created
+	if(pm->CreateFile(tableName.c_str()) != 0)
+	{
+		return 0;
+	}
 	int length1 = 0;
 	int length2 = 0;
 
+	/*//Calculate total length of expected attribute
 	for (unsigned int i = 0; i < attrs.size(); i++)
 	{
 		//Need: Table name (String), Attribute Name (string), Type (int), Length (int)
@@ -82,19 +60,13 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 		AttrLength length = attrs[i].length;
 		length1 += sizeof(length);
 		length1 += sizeof(length1);
+	}*/
 
-	}
 
+	//For each attribute set the amount of space needed
+	//Also copy the data to a buffer to be appended to the page
 	for (unsigned int i = 0; i < attrs.size(); i++)
 	{
-		//Need: Overall Length (int), Table name (String), Attribute Name (string), Type (int), Length (int)
-
-		//length1 = length1 + sizeof(length1);
-		//cout << "Length: " << length1 << endl;
-		//memcpy(pageToWritePointer, &length1, sizeof(length1));
-		//pageToWritePointer = pageToWritePointer + sizeof(length1);
-
-
 		//Total Length of attribute
 		length1 = 0;
 		length1 = 4 + 4 + tableName.size() + 4 + attrs[i].name.size() + 4  + 4 + 4;
@@ -145,12 +117,14 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 	int offset = -1;
 	bool found = false;
 
+	//If table is empty (page-less), simply append the page
 	if (numberOfPages == 0)
 	{
 		scHandle.AppendPage(pageToWrite);
 	}
 	else
 	{
+		//Otherwise find the next available free space and add the new attribute record
 		for (int i = 0; i < numberOfPages; i++)
 		{
 			char data[PF_PAGE_SIZE];
@@ -159,11 +133,11 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 			while(x + 3 < PF_PAGE_SIZE && !found)
 			{
 				int size = 0;
-				char temp[4];
-				temp[0] = data[x];
-				temp[1] = data[x+1];
-				temp[2] = data[x+2];
-				temp[3] = data[x+3];
+				char temp[sizeof(int)];
+				for (unsigned int z = 0; z < sizeof(int); z++)
+				{
+					temp[z] = data[x+z];
+				}
 				char *ptr = (char*) temp;
 				memcpy(&size, ptr, 4);
 				if (size == 0)
@@ -184,6 +158,7 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 		}
 		if (found)
 		{
+			//If there is enough space on the current page, write the new attribute record to it
 			char data[PF_PAGE_SIZE];
 			scHandle.ReadPage(pageNum, (void*) data);
 			for (int i = offset; i < PF_PAGE_SIZE; i++)
@@ -194,6 +169,7 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 		}
 		else
 		{
+			// Otherwise append it to a new page
 			scHandle.AppendPage(pageToWrite);
 		}
 	}
@@ -202,10 +178,14 @@ RC RM::createTable(const string tableName, const vector<Attribute> &attrs)
 
 RC RM::deleteTable(const string tableName)
 {
+	//clear the table
 	deleteTuples(tableName);
+	//close scHandle (in case the system catalog is the one being destroyed)
 	pm->CloseFile(scHandle);
+	//destroy file
 	pm->DestroyFile(tableName.c_str());
 	string x ="System_Catalog";
+	//try to reopen system catalog
 	pm->OpenFile(x.c_str(), scHandle);
 	return 0;
 }
@@ -222,60 +202,62 @@ RC RM::getAttributes(const string tableName, vector<Attribute> &attrs)
 		bool found = false;
 		while (!found)
 		{
+			//check the size of the attribute currently being read
 			int attributeSize = 0;
-			char temp[4];
-			temp[0] = data[offset + 0];
-			temp[1] = data[offset + 1];
-			temp[2] = data[offset + 2];
-			temp[3] = data[offset + 3];
+			char temp[sizeof(int)];
+			for (unsigned int z = 0; z < sizeof(int); z++)
+			{
+				temp[z] = data[offset+z];
+			}
 			char *tempPtr = (char*) temp;
-			memcpy(&attributeSize, tempPtr, 4);
-
+			memcpy(&attributeSize, tempPtr, sizeof(int));
+			// if 0, attribute is not on this page...  break
 			if(attributeSize == 0)
 			{
 				break;
 			}
-
-			temp[0] = data[offset + 4];
-			temp[1] = data[offset + 5];
-			temp[2] = data[offset + 6];
-			temp[3] = data[offset + 7];
+			//get table name's size
+			for (unsigned int z = 0; z < sizeof(int); z++)
+			{
+				temp[z] = data[offset+z+sizeof(int)];
+			}
 			int tableNameSize = 0;
-			memcpy(&tableNameSize, tempPtr, 4);
+			memcpy(&tableNameSize, tempPtr, sizeof(int));
 			string tName = "";
+			//get table name
 			for (int k = 0; k < tableNameSize; k++)
 			{
-				tName = tName + data[offset+4+4+k];
+				tName = tName + data[offset+2*sizeof(int)+k];
 			}
-
+			//compare table name of current attribute being read with the one being requested. If match...
 			if (strcmp(tName.c_str(), tableName.c_str()) == 0)
 			{
+				//Extract all data:
 				// Length of attribute, table name, attribute name, column number, type, length
 				string aName = "";
-				temp[0] = data[offset + 8 + tableNameSize];
-				temp[1] = data[offset + 9 + tableNameSize];
-				temp[2] = data[offset + 10 + tableNameSize];
-				temp[3] = data[offset + 11 + tableNameSize];
+				for (unsigned int z = 0; z < sizeof(int); z++)
+				{
+					temp[z] = data[offset+z+2*sizeof(int)+tableNameSize];
+				}
 				int attNameSize = 0;
-				memcpy(&attNameSize, tempPtr, 4);
+				memcpy(&attNameSize, tempPtr, sizeof(int));
 				for (int k = 0; k < attNameSize; k++)
 				{
-					aName = aName + data[offset+4+4+4+k+tableNameSize];
+					aName = aName + data[offset+sizeof(int)*3+k+tableNameSize];
 				}
-
-				temp[0] = data[offset + 16 + tableNameSize + attNameSize];
-				temp[1] = data[offset + 17 + tableNameSize + attNameSize];
-				temp[2] = data[offset + 18 + tableNameSize + attNameSize];
-				temp[3] = data[offset + 19 + tableNameSize + attNameSize];
+				for (unsigned int z = 0; z < sizeof(int); z++)
+				{
+					temp[z] = data[offset+z+4*sizeof(int)+tableNameSize+attNameSize];
+				}
 				int type = 0;
-				memcpy(&type, tempPtr, 4);
+				memcpy(&type, tempPtr, sizeof(int));
 
-				temp[0] = data[offset + 20 + tableNameSize + attNameSize];
-				temp[1] = data[offset + 21 + tableNameSize + attNameSize];
-				temp[2] = data[offset + 22 + tableNameSize + attNameSize];
-				temp[3] = data[offset + 23 + tableNameSize + attNameSize];
+				for (unsigned int z = 0; z < sizeof(int); z++)
+				{
+					temp[z] = data[offset+z+5*sizeof(int)+tableNameSize+attNameSize];
+				}
 				int length = 0;
-				memcpy(&length, tempPtr, 4);
+				memcpy(&length, tempPtr, sizeof(int));
 
 				Attribute x;
 				x.name = aName;
@@ -292,6 +274,8 @@ RC RM::getAttributes(const string tableName, vector<Attribute> &attrs)
 					x.type = TypeVarChar;
 				}
 				x.length = (AttrLength) length;
+				//Turn information gathered into an actual attribute
+				//Push the attribute into a result vector
 				attrs.push_back(x);
 			}
 
@@ -314,330 +298,656 @@ RC RM::insertTuple(const string tableName, const void *data, RID &rid)
 {
 	PF_FileHandle fh;
 	pm->OpenFile(tableName.c_str(), fh);
-	vector<Attribute> att;
-	getAttributes(tableName, att);
-	int totalRecordSize = 0;
-	for (unsigned int i = 0; i < att.size(); i++)
-	{
-		totalRecordSize += att[i].length;
-	}
 	int numberOfPages = fh.GetNumberOfPages();
-	int pageNum = -1;
-	bool found = false;
+
+	int slot = -1;
+	int page = -1;
 
 	char recordToAdd[PF_PAGE_SIZE];
-	char *recToAddPtr22 = (char*) recordToAdd;
-	char *dataPtr22 = (char*) data;
-	memcpy(recToAddPtr22, dataPtr22, totalRecordSize);
-	int recordSize = 0;
-	int slot = 0;
-	for (unsigned int i = 0; i < att.size(); i++)
-	{
-		if (att[i].type == TypeVarChar)
-		{
-			char temp[4];
-			char *tempPtr = (char*) temp;
-			temp[0] = recordToAdd[recordSize];
-			temp[1] = recordToAdd[recordSize+1];
-			temp[2] = recordToAdd[recordSize+2];
-			temp[3] = recordToAdd[recordSize+3];
-			int tempNum = 0;
-			memcpy(&tempNum, tempPtr, sizeof(int));
+	char *recordToAddPtr = (char*) recordToAdd;
+	char *dataPtr = (char*) data;
 
-			recordSize += sizeof(int) + tempNum;
+	//Check the total size of the record being added
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
+	int tempInt = 0;
+	for (unsigned int a = 0; a<attrs.size(); a++)
+	{
+		tempInt += attrs[a].length;
+	}
+
+	memcpy(recordToAddPtr, dataPtr, tempInt);
+	unsigned int recordLength = 0;
+	for (unsigned int a = 0; a < attrs.size(); a++)
+	{
+		Attribute attr = attrs[a];
+		if (attr.type == TypeVarChar)
+		{
+			//Get the length of a type var char
+			char *tempPtr = (char*) recordToAdd;
+			int num = -1;
+			tempPtr += recordLength;
+			memcpy(&num, tempPtr, sizeof(int));
+			recordLength += sizeof(int) + num;
 		}
 		else
 		{
-			recordSize += sizeof(int);
+			recordLength += sizeof(int);
 		}
 	}
-	for (int i = recordSize; i < PF_PAGE_SIZE; i++)
+
+	//Make sure page is clean
+	for (int i = recordLength; i < PF_PAGE_SIZE; i++)
 	{
 		recordToAdd[i] = 0;
 	}
+
+	// If there are no pages currently, set up slots and other information
 	if (numberOfPages == 0)
 	{
+		char *ptr = (char*) recordToAdd;
+		ptr += (PF_PAGE_SIZE - 4 *sizeof(int));
+		//Set slot 1 offset to zero
+		int zero = 0;
+		memcpy(ptr, &zero, sizeof(int));
+		// Set next free offset
+		ptr += sizeof(int);
+		memcpy(ptr, &recordLength, sizeof(int));
+		// Set amount of space available
+		ptr += sizeof(int);
+		int freeSpaceAvailable = PF_PAGE_SIZE - sizeof(int) * 4 - recordLength;
+		memcpy(ptr, &freeSpaceAvailable, sizeof(int));
+		// Set number of slots
+		ptr += sizeof(int);
+		int one = 1;
+		memcpy(ptr, &one, sizeof(int));
+		page = 0;
+		slot = 1;
+		rid.pageNum = page;
+		rid.slotNum = slot;
 		fh.AppendPage(recordToAdd);
-		pageNum = 0;
-		found = true;
+		pm->CloseFile(fh);
+		return 0;
 	}
 	else
 	{
-		for (int i = 0; i < numberOfPages; i++)
+		for (int p = 0; p < numberOfPages; p++)
 		{
-			int slotCount = 0;
-			char pageRead[PF_PAGE_SIZE];
-			fh.ReadPage(i, pageRead);
-			int maxRecords = PF_PAGE_SIZE/totalRecordSize;
-			for (int z = 0; z < maxRecords; z++)
-			{
-				char temp[4];
-				char *tempPtr = (char*) temp;
-				temp[0] = pageRead[z*totalRecordSize];
-				temp[1] = pageRead[z*totalRecordSize+1];
-				temp[2] = pageRead[z*totalRecordSize+2];
-				temp[3] = pageRead[z*totalRecordSize+3];
-				int t = 0;
-				memcpy(&t, tempPtr, sizeof(int));
-				if (t == 0 && !found)
-				{
-					found = true;
-					for (int w = 0; w < recordSize; w++)
-					{
-						pageRead[z*totalRecordSize+w] = recordToAdd[w];
-						fh.WritePage(i, pageRead);
-						pageNum = i;
-						slot = slotCount;
-					}
-				}
-				slotCount++;
-			}
+			char currentPage[PF_PAGE_SIZE];
+			fh.ReadPage(p, currentPage);
 
+			//Get amount of free space in current page;
+			int num = -1;
+			char *tempPtr1 = (char*) currentPage;
+			tempPtr1 += (PF_PAGE_SIZE - 2 * sizeof(int));
+			memcpy(&num, tempPtr1, sizeof(int));
+			unsigned int freeSpaceOnPage = num;
+
+			// If there is free space available, add
+			if (recordLength + sizeof(int) < freeSpaceOnPage)
+			{
+				//Get number of slots currently on page
+				char tempArray2[sizeof(int)];
+				char *tempArrayPtr2 = (char*) tempArray2;
+				int num2 = -1;
+				for (unsigned int i = 0; i < sizeof(int); i++)
+				{
+					tempArray2[i] = currentPage[PF_PAGE_SIZE - 1 * sizeof(int) + i];
+				}
+				memcpy(&num2, tempArrayPtr2, sizeof(int));
+				int slotsOnPage = num2;
+
+				//Calculate offset
+				char tempArray3[sizeof(int)];
+				char *tempArrayPtr3 = (char*) tempArray3;
+				int num3 = -1;
+				for (unsigned int i = 0; i < sizeof(int); i++)
+				{
+					tempArray3[i] = currentPage[PF_PAGE_SIZE - 3 * sizeof(int) + i];
+				}
+				memcpy(&num3, tempArrayPtr3, sizeof(int));
+				int nextAvailableOffset = num3;
+
+
+				//Put offset in slot pointer of new record
+				slotsOnPage++;
+				slot = slotsOnPage;
+				page = p;
+				char *currentPagePtr = (char*) currentPage;
+				char *dataPtr = (char*) recordToAdd;
+				currentPagePtr += nextAvailableOffset;
+				//Put record information in correct position
+				memcpy(currentPagePtr, dataPtr, recordLength);
+				//Put slot off set in correct slot pointer
+				currentPagePtr += (PF_PAGE_SIZE - 3 * sizeof(int) - slotsOnPage * sizeof(int) - nextAvailableOffset);
+				memcpy(currentPagePtr, &nextAvailableOffset, sizeof(int));
+				//Set next free offset
+				nextAvailableOffset += recordLength;
+				currentPagePtr += (slotsOnPage * sizeof(int));
+				memcpy(currentPagePtr, &nextAvailableOffset, sizeof(int));
+				//Set amount of free space avilable
+				currentPagePtr += sizeof(int);
+				freeSpaceOnPage -= (recordLength + sizeof(int));
+				memcpy(currentPagePtr, &freeSpaceOnPage, sizeof(int));
+				//Set slot count
+				currentPagePtr += sizeof(int);
+				memcpy(currentPagePtr, &slotsOnPage, sizeof(int));
+
+				fh.WritePage(p, currentPage);
+				pm->CloseFile(fh);
+				rid.pageNum = page;
+				rid.slotNum = slot;
+				return 0;
+			}
 		}
-		if (!found)
+		//If no place to add... append a new page
+		//Initialize directory information
+		char *ptr = (char*) recordToAdd;
+		ptr += (PF_PAGE_SIZE - 4 *sizeof(int));
+		int zero = 0;
+		memcpy(ptr, &zero, sizeof(int));
+		ptr += sizeof(int);
+		memcpy(ptr, &recordLength, sizeof(int));
+		ptr += sizeof(int);
+		int freeSpaceAvailable = PF_PAGE_SIZE - sizeof(int) * 4 - recordLength;
+		memcpy(ptr, &freeSpaceAvailable, sizeof(int));
+		ptr += sizeof(int);
+		int one = 1;
+		memcpy(ptr, &one, sizeof(int));
+		page = 0;
+		slot = 1;
+		rid.pageNum = page;
+		rid.slotNum = slot;
+
+		fh.AppendPage(recordToAdd);
+		pm->CloseFile(fh);
+		return 0;
+	}
+	pm->CloseFile(fh);
+	return 0;
+}
+
+RC RM::deleteTuple(const string tableName, const RID &rid)
+{
+	int page = rid.pageNum;
+	int slot = rid.slotNum;
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
+
+	PF_FileHandle fh;
+	pm->OpenFile(tableName.c_str(), fh);
+	char pageRead[PF_PAGE_SIZE];
+	fh.ReadPage(page, pageRead);
+	int start = -1;
+	char *pageReadPtr = (char*) pageRead;
+	//Set variable "start" to offset of rid
+	pageReadPtr +=  (PF_PAGE_SIZE - ((3 + slot) * sizeof(int)));
+	memcpy(&start, pageReadPtr, sizeof(int));
+	int recordLength = 0;
+	//Go through the record's attributes, set them to blank as they come up, until there are no attributes left
+	for (unsigned int a = 0; a <attrs.size(); a++)
+	{
+		if (attrs[a].type == TypeVarChar)
 		{
-			fh.AppendPage(recordToAdd);
-			pageNum = fh.GetNumberOfPages();
-			slot = 0;
+			int stringLength = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp[i] = pageRead[start + recordLength + i];
+				pageRead[start + recordLength + i] = 0;
+			}
+			memcpy(&stringLength, tempPtr, sizeof(int));
+			recordLength += sizeof(int);
+			for (int i = 0; i < stringLength; i++)
+			{
+				pageRead[start + recordLength + i] = 0;
+			}
+			recordLength += stringLength;
+		}
+		else
+		{
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				pageRead[start + recordLength + i] = 0;
+			}
+			recordLength += sizeof(int);
 		}
 	}
-	rid.pageNum = pageNum;
-	rid.slotNum = slot;
+	fh.WritePage(page, pageRead);
 	pm->CloseFile(fh);
 	return 0;
 }
 
 RC RM::deleteTuples(const string tableName)
 {
-	PF_FileHandle fg;
-	pm->OpenFile(tableName.c_str(), fg);
-	int numberOfPages = fg.GetNumberOfPages();
-
-	for (int i = 0; i < numberOfPages; i++)
+	//Select all pages, set all bytes to 0
+	PF_FileHandle fh;
+	pm->OpenFile(tableName.c_str(), fh);
+	int numberOfPages = fh.GetNumberOfPages();
+	for (int p = 0; p < numberOfPages; p++)
 	{
 		char page[PF_PAGE_SIZE];
-		fg.ReadPage(i, page);
-		for (int x = 0; x < PF_PAGE_SIZE; x++)
+		for (int i = 0; i < PF_PAGE_SIZE; i++)
 		{
-			page[x] = 0;
+			page[i] = 0;
 		}
-		fg.WritePage(i, page);
+		fh.WritePage(p, page);
 	}
-	pm->CloseFile(fg);
-	//pm->DestroyFile(tableName.c_str());
-	//pm->CreateFile(tableName.c_str());
+	pm->CloseFile(fh);
 	return 0;
 }
 
-RC RM::deleteTuple(const string tableName, const RID &rid)
-{
-	int slot = rid.slotNum;
-	int page = rid.pageNum;
-	vector<Attribute> attr;
-	getAttributes(tableName, attr);
-	int totalRecordSize = 0;
-	for (unsigned int i = 0; i < attr.size(); i++)
-	{
-		totalRecordSize += attr[i].length;
-	}
-
-	PF_FileHandle fg;
-	pm->OpenFile(tableName.c_str(), fg);
-	char pageRead[PF_PAGE_SIZE];
-	fg.ReadPage(page, pageRead);
-
-	for (int i = slot * totalRecordSize; i < slot*totalRecordSize + totalRecordSize; i++)
-	{
-		pageRead[i] = 0;
-	}
-	fg.WritePage(page, pageRead);
-	pm->CloseFile(fg);
-	return 0;
-}
 
 // Assume the rid does not change after update
 RC RM::updateTuple(const string tableName, const void *data, const RID &rid)
 {
-	int slot = rid.slotNum;
 	int page = rid.pageNum;
-	vector<Attribute> attr;
-	getAttributes(tableName, attr);
+	int slot = rid.slotNum;
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
 
-	int totalRecordSize = 0;
-	for (unsigned int i = 0; i < attr.size(); i++)
-	{
-		totalRecordSize += attr[i].length;
-	}
-
-	PF_FileHandle fg;
-	pm->OpenFile(tableName.c_str(), fg);
+	PF_FileHandle fh;
+	pm->OpenFile(tableName.c_str(), fh);
 	char pageRead[PF_PAGE_SIZE];
-	fg.ReadPage(page, pageRead);
-
-	char updateInfo[PF_PAGE_SIZE];
-	char *a = (char*) updateInfo;
-	char *b = (char*) data;
-	memcpy(a, b, PF_PAGE_SIZE);
-
-	for (int i = 0; i < totalRecordSize; i++)
+	fh.ReadPage(page, pageRead);
+	int start = -1;
+	char *pageReadPtr = (char*) pageRead;
+	pageReadPtr +=  (PF_PAGE_SIZE - ((3 + slot) * sizeof(int)));
+	memcpy(&start, pageReadPtr, sizeof(int));
+	int recordLength = 0;
+	//get a general size of expected record
+	for (unsigned int a = 0; a <attrs.size(); a++)
 	{
-		pageRead[slot*totalRecordSize+i] = updateInfo[i];
+		if (attrs[a].type == TypeVarChar)
+		{
+			int stringLength = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp[i] = pageRead[start + recordLength + i];
+			}
+			memcpy(&stringLength, tempPtr, sizeof(int));
+			recordLength += sizeof(int);
+			recordLength += stringLength;
+		}
+		else
+		{
+			recordLength += sizeof(int);
+		}
 	}
-	fg.WritePage(page, pageRead);
-	pm->CloseFile(fg);
+
+	//copy data to a buffer
+	char dataPage[PF_PAGE_SIZE];
+	char *dataPagePtr = (char*) dataPage;
+	char *dataPtr = (char*) data;
+	memcpy(dataPagePtr, dataPtr, PF_PAGE_SIZE);
+
+	//check the length of the new record
+	int newRecordLength = 0;
+	for (unsigned int a = 0; a <attrs.size(); a++)
+	{
+		if (attrs[a].type == TypeVarChar)
+		{
+			int stringLength = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp[i] = dataPage[newRecordLength + i];
+			}
+			memcpy(&stringLength, tempPtr, sizeof(int));
+			newRecordLength += sizeof(int);
+			newRecordLength += stringLength;
+		}
+		else
+		{
+			newRecordLength += sizeof(int);
+		}
+	}
+
+	// Check if the new record record is too big to fit
+	//If it is...
+	if(newRecordLength > recordLength)
+	{
+		RID newRID;
+		int newPage =newRID.pageNum;
+		int newSlot = newRID.slotNum;
+		//Insert in to a new page
+		insertTuple(tableName, data,newRID);
+		//Set a "tombstone" with the rid (first int = 0 [so rm knows that it is a tombstone], 2nd int = page, 3rd int = slot)
+		int zero = 0;
+		char *pageReadPtr2 = (char*) pageRead;
+		pageReadPtr2 += start;
+		memcpy(pageReadPtr, &zero, sizeof(int));
+		pageReadPtr2 += sizeof(int);
+		memcpy(pageReadPtr, &newPage, sizeof(int));
+		pageReadPtr2 += sizeof(int);
+		memcpy(pageReadPtr, &newSlot, sizeof(int));
+
+		for (int i = sizeof(int) * 3; i < recordLength; i++)
+		{
+			pageRead[start+i] = 0;
+		}
+
+		fh.WritePage(page, pageRead);
+	}
+	//If there's enough room
+	else
+	{
+		//Update the record
+		char *pageReadPtr2 = (char*) pageRead;
+		pageReadPtr2 += start;
+		memcpy(pageReadPtr2, dataPage, newRecordLength);
+		// if the record is smaller, set the excess space to 0
+		for (int i =0; i <recordLength - newRecordLength; i++)
+		{
+			pageRead[start+newRecordLength+i] = 0;
+		}
+		fh.WritePage(page, pageRead);
+	}
+	pm->CloseFile(fh);
 	return 0;
 }
+
 
 RC RM::readTuple(const string tableName, const RID &rid, void *data)
 {
 	int slot = rid.slotNum;
 	int page = rid.pageNum;
-	vector<Attribute> attr;
-	getAttributes(tableName, attr);
-	int totalRecordSize = 0;
-	for (unsigned int i = 0; i < attr.size(); i++)
-	{
-		totalRecordSize += attr[i].length;
-	}
-
-	PF_FileHandle fT;
-	pm->OpenFile(tableName.c_str(), fT);
-	char pageRead[PF_PAGE_SIZE];
-	fT.ReadPage(page, pageRead);
-
-	int start = slot * totalRecordSize;
-	int end = slot * totalRecordSize + totalRecordSize;
-	void *dataPtr = (void *) data;
-	char *pageReadPtr = (char *) pageRead;
-	pageReadPtr += start;
-	int offset = end - start;
-	memcpy(dataPtr, pageReadPtr, offset);
-	char temp[4];
-	char *tempPtr = (char*) temp;
-	temp[0] = pageRead[start];
-	temp[1] = pageRead[start+1];
-	temp[2] = pageRead[start+2];
-	temp[3] = pageRead[start+3];
-	int x = 0;
-	memcpy(&x, tempPtr, sizeof(int));
-	if (x == 0)
-	{
-		return -1;
-	}
-
-	pm->CloseFile(fT);
-	return 0;
-}
-
-RC RM::readAttribute(const string tableName, const RID &rid, const string attributeName, void *data)
-{
-	vector<Attribute> attr;
-	getAttributes(tableName, attr);
-	int totalRecordSize = 0;
-	for (unsigned int i = 0; i < attr.size(); i++)
-	{
-		totalRecordSize += attr[i].length;
-	}
-	char data2[PF_PAGE_SIZE];
-	char result[PF_PAGE_SIZE];
-	char *resultPtr = (char*) result;
-	readTuple(tableName, rid, data2);
-	int counter = 0;
-	for (unsigned int i = 0; i < attr.size(); i++)
-	{
-		if (attr[i].type == TypeVarChar)
-		{
-			char temp[4];
-			char *tempPtr = (char*) temp;
-			temp[0] = data2[counter];
-			temp[1] = data2[counter+1];
-			temp[2] = data2[counter+2];
-			temp[3] = data2[counter+3];
-			int t = 0;
-			memcpy(&t, tempPtr, sizeof(int));
-			if (strcmp(attr[i].name.c_str(), attributeName.c_str()) == 0)
-			{
-				for (int z = 0; z < t; z++)
-				{
-					result[z] = data2[counter+3+z];
-				}
-				void *ptr = (void*) data;
-				memcpy(ptr, resultPtr, t);
-				return 0;
-			}
-			counter += t + sizeof(int);
-		}
-		else
-		{
-			char temp[4];
-			char *tempPtr = (char*) temp;
-			temp[0] = data2[counter];
-			temp[1] = data2[counter+1];
-			temp[2] = data2[counter+2];
-			temp[3] = data2[counter+3];
-			int t = 0;
-			memcpy(&t, tempPtr, sizeof(int));
-			if (strcmp(attr[i].name.c_str(), attributeName.c_str()) == 0)
-			{
-				result[0] = data2[counter];
-				result[1] = data2[counter+1];
-				result[2] = data2[counter+2];
-				result[3] = data2[counter+3];
-				void *ptr = (void*) data;
-				memcpy(ptr, resultPtr, sizeof(int));
-				return 0;
-			}
-			counter += sizeof(int);
-		}
-	}
-	return -1;
-}
-
-RC RM::reorganizePage(const string tableName, const unsigned pageNumber)
-{
-	vector<Attribute> att;
-	getAttributes(tableName, att);
-	int recordSize = 0;
-	for (unsigned int i = 0; i < att.size(); i++)
-	{
-		recordSize += att[i].length;
-	}
 
 	PF_FileHandle fh;
 	pm->OpenFile(tableName.c_str(), fh);
-	int recordsPerPage = PF_PAGE_SIZE/recordSize;
-
 	char pageRead[PF_PAGE_SIZE];
-	fh.ReadPage(pageNumber, pageRead);
-	for (int r1 = 0; r1 < recordsPerPage; r1++)
-	{
-		char firstIntR1[4];
-		firstIntR1[0] = pageRead[r1*recordSize];
-		firstIntR1[1] = pageRead[r1*recordSize+1];
-		firstIntR1[2] = pageRead[r1*recordSize+2];
-		firstIntR1[3] = pageRead[r1*recordSize+3];
-		int firstInt = 0;
-		char *ptr = (char*) firstIntR1;
-		memcpy(&firstInt, ptr, sizeof(int));
+	fh.ReadPage(page, pageRead);
 
-		if (firstInt == 0)
+	//If there are no pages, return -1
+	if (fh.GetNumberOfPages() == 0)
+	{
+		pm->CloseFile(fh);
+		return -1;
+	}
+
+	char resultsBuffer[PF_PAGE_SIZE];
+	int start = -1;
+	int recordLength = 0;
+	char *pageReadPtr = (char*) pageRead;
+	pageReadPtr +=  (PF_PAGE_SIZE - ((3 + slot) * sizeof(int)));
+	memcpy(&start, pageReadPtr, sizeof(int));
+	//Get attributes for the record
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
+
+	//For each attribute, read the information into the result buffer
+	for (unsigned int a = 0; a <attrs.size(); a++)
+	{
+		if (attrs[a].type == TypeVarChar)
 		{
-			for (int r2 = r1; r2 < recordsPerPage - 1; r2++)
+			int stringLength = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
 			{
-				for (int i = 0; i < recordSize; i++)
+				temp[i] = pageRead[start + recordLength + i];
+				resultsBuffer[recordLength + i] = pageRead[start + recordLength + i];
+			}
+			memcpy(&stringLength, tempPtr, sizeof(int));
+			recordLength += sizeof(int);
+			for (int i = 0; i < stringLength; i++)
+			{
+				resultsBuffer[recordLength + i] = pageRead[start + recordLength + i];
+			}
+			recordLength += stringLength;
+		}
+		else
+		{
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				resultsBuffer[recordLength + i] = pageRead[start + recordLength + i];
+			}
+			recordLength += sizeof(int);
+		}
+	}
+
+	char *dataPtr = (char*) data;
+	char *rbPtr = (char*) resultsBuffer;
+	memcpy(dataPtr, rbPtr, recordLength);
+
+	//testInt/testInt2/testInt3 checks if the record is blank or if it has a tombstone. (if testInt2 and testInt3 do not equal 0, then it is a tombstone)
+	int testInt = 0;
+	char temp[sizeof(int)];
+	char *tempPtr = (char*) temp;
+	for (unsigned int i = 0; i < sizeof(int); i++)
+	{
+		temp[i] = resultsBuffer[i];
+	}
+	memcpy(&testInt, tempPtr, sizeof(int));
+
+	int testInt2 = 0;
+	char temp2[sizeof(int)];
+	char *tempPtr2 = (char*) temp2;
+	for (unsigned int i = sizeof(int); i < sizeof(int) * 2; i++)
+	{
+		temp2[i] = resultsBuffer[i];
+	}
+	memcpy(&testInt2, tempPtr2, sizeof(int));
+
+	if (testInt == 0 && testInt2 == 0)
+	{
+		pm->CloseFile(fh);
+		return -1;
+	}
+	else if (testInt == 0)
+	{
+		int testInt3 = 0;
+		char temp3[sizeof(int)];
+		char *tempPtr3 = (char*) temp3;
+		for (unsigned int i = sizeof(int) * 2; i < sizeof(int) * 3; i++)
+		{
+			temp3[i] = resultsBuffer[i];
+		}
+		memcpy(&testInt3, tempPtr3, sizeof(int));
+
+		int tempPage = testInt2;
+		int tempSlot = testInt3;
+		RID tempRID;
+		tempRID.pageNum = tempPage;
+		tempRID.slotNum = tempSlot;
+		//If it is a tombstone, read that tombstone's rid
+		readTuple(tableName, tempRID, data);
+		pm->CloseFile(fh);
+		return 0;
+	}
+	pm->CloseFile(fh);
+	return 0;
+}
+
+
+RC RM::readAttribute(const string tableName, const RID &rid, const string attributeName, void *data)
+{
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
+
+	//Get an expected size of the record
+	int tempSize = 0;
+	for (unsigned int a = 0; a < attrs.size(); a++)
+	{
+		tempSize += attrs[a].length;
+	}
+
+	char resultsBuffer[tempSize];
+	char *rbPtr = (char*) resultsBuffer;
+	char *dataPtr = (char*) data;
+
+	//Get the specific record with rid
+	readTuple(tableName, rid, resultsBuffer);
+
+	int recordLength = 0;
+	//Go through attributes
+	for (unsigned int a = 0; a < attrs.size(); a++)
+	{
+		if (attrs[a].type == TypeVarChar)
+		{
+			int stringLength = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp[i] = resultsBuffer[recordLength + i];
+			}
+			memcpy(&stringLength, tempPtr, sizeof(int));
+			//check if the attribute name matches, if yes, add it to the results
+			if (strcmp(attributeName.c_str(), attrs[a].name.c_str()) == 0)
+			{
+				memcpy(dataPtr, rbPtr, sizeof(int) + stringLength);
+			}
+			recordLength += sizeof(int) +stringLength;
+			rbPtr+= sizeof(int)+stringLength;
+		}
+		else
+		{
+			//check if the attribute name matches, if yes, add it to the results
+			if (strcmp(attributeName.c_str(), attrs[a].name.c_str()) == 0)
+			{
+				memcpy(dataPtr, rbPtr, sizeof(int));
+			}
+			recordLength += sizeof(int);
+			rbPtr+= sizeof(int);
+		}
+	}
+	return 0;
+}
+
+
+RC RM::reorganizePage(const string tableName, const unsigned pageNumber)
+{
+	vector<Attribute> attrs;
+	getAttributes(tableName, attrs);
+	PF_FileHandle fh;
+	pm->OpenFile(tableName.c_str(), fh);
+
+	//Determine max record size:
+	int maxSize = 0;
+	for (unsigned int a = 0; a <attrs.size(); a++)
+	{
+		maxSize += attrs[a].length;
+	}
+	char currentPage[PF_PAGE_SIZE];
+	fh.ReadPage(pageNumber, currentPage);
+	int numberOfSlots = 0;
+	char temp[sizeof(int)];
+	char *tempPtr = (char*) temp;
+	//Get number of slots on page
+	for (unsigned int i = 0; i < sizeof(int); i++)
+	{
+		temp[i] = currentPage[PF_PAGE_SIZE-sizeof(int)+i];
+	}
+	memcpy(&numberOfSlots, tempPtr, sizeof(int));
+
+	//Information offset (directory information and pointers)
+	int informationOffset = PF_PAGE_SIZE - sizeof(int) * (3 + numberOfSlots);
+
+	//For each slot s, check if it is blank
+	for (int s = 1; s < numberOfSlots; s++)
+	{
+		RID rid;
+		rid.pageNum = pageNumber;
+		rid.slotNum = s;
+		cout << "maxSize: " << maxSize << endl;
+		char currentRecord[maxSize];
+		if (readTuple(tableName, rid, currentRecord) == -1)
+		{
+			//Get current slot's offset
+			int currentSlotOffset = 0;
+			char temp[sizeof(int)];
+			char *tempPtr = (char*) temp;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp[i] = currentPage[PF_PAGE_SIZE-sizeof(int) * (3 + s)+i];
+			}
+			memcpy(&currentSlotOffset, tempPtr, sizeof(int));
+
+
+			//Get next slot's offset
+			int nextSlotOffset = 0;
+			char temp2[sizeof(int)];
+			char *tempPtr2 = (char*) temp2;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp2[i] = currentPage[PF_PAGE_SIZE-sizeof(int) * (3 + s + 1)+i];
+			}
+			memcpy(&nextSlotOffset, tempPtr2, sizeof(int));
+
+
+			//Preserve first 3 int's in case it is a tombstone
+			currentSlotOffset += 3 *sizeof(int);
+
+			//Check amount of data to be deleted
+			int amountToShift = nextSlotOffset - currentSlotOffset;
+
+			for (int i = currentSlotOffset; i < informationOffset; i++)
+			{
+				if (i+amountToShift >= informationOffset)
 				{
-					char temp[recordSize];
-					temp[i] = pageRead[r2*recordSize+i+recordSize];
-					pageRead[r2*recordSize+i+recordSize] = pageRead[r2*recordSize+i];
-					pageRead[r2*recordSize+i] = temp[i];
+					currentPage[i] = 0;
+				}
+				else
+				{
+					currentPage[i] = currentPage[i + amountToShift];
 				}
 			}
-			fh.WritePage(pageNumber, pageRead);
+
+			//Shift all remaining slots down, and properly update their offsets
+			for (int remainingSlots = s + 1; remainingSlots <= numberOfSlots; remainingSlots++)
+			{
+				char temp8[sizeof(int)];
+				char *temp8Ptr = (char*) temp8;
+				int rsOffset = 0;
+				for (unsigned int i = 0; i < sizeof(int); i++)
+				{
+					temp8[i] = currentPage[PF_PAGE_SIZE - sizeof(int) * (3 + remainingSlots) + i];
+				}
+				memcpy(&rsOffset, temp8Ptr, sizeof(int));
+				char *currentPagePtr = (char*) currentPage;
+				currentPagePtr += PF_PAGE_SIZE - sizeof(int) * (3 + remainingSlots);
+				memcpy(currentPagePtr, &rsOffset, sizeof(int));
+			}
+			//Set free space available
+			char temp9[sizeof(int)];
+			char *temp9Ptr = (char*) temp9;
+			int freeSpace = 0;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp9[i] = currentPage[PF_PAGE_SIZE - sizeof(int) * 2 + i];
+			}
+			memcpy(&freeSpace, temp9Ptr, sizeof(int));
+			freeSpace -= amountToShift;
+			char *currentPagePtr = (char*) currentPage;
+			currentPagePtr += PF_PAGE_SIZE - sizeof(int) * 2;
+			memcpy(currentPagePtr, &freeSpace, sizeof(int));
+
+			//Set next available offset
+			char temp10[sizeof(int)];
+			char *temp10Ptr = (char*) temp10;
+			int nextAvailableOffset = 0;
+			for (unsigned int i = 0; i < sizeof(int); i++)
+			{
+				temp10[i] = currentPage[PF_PAGE_SIZE - sizeof(int) * 3 + i];
+			}
+			memcpy(&nextAvailableOffset, temp10Ptr, sizeof(int));
+			nextAvailableOffset -= amountToShift;
+			char *currentPagePtr2 = (char*) currentPage;
+			currentPagePtr2 += PF_PAGE_SIZE - sizeof(int) * 3;
+			memcpy(currentPagePtr2, &nextAvailableOffset, sizeof(int));
+
+			fh.WritePage(pageNumber, currentPage);
 		}
 	}
 	pm->CloseFile(fh);
 	return 0;
 }
+
 
 // scan returns an iterator to allow the caller to go through the results one by one.
 RC RM::scan(const string tableName,
@@ -663,30 +973,47 @@ RC RM::scan(const string tableName,
 	{
 		recordSize += att[i].length;
 	}
-	int maxNumberOfRecords = PF_PAGE_SIZE/recordSize;
 	int pageNum = fg.GetNumberOfPages();
 	vector<RID> results;
+	// go through every page of the table
 	for (int p = 0; p < pageNum; p++)
 	{
-		int slot = 0;
+		int slot = 1;
 		char currentPage[PF_PAGE_SIZE];
 		fg.ReadPage(p, currentPage);
+		//check how many records are in the current page
+		int maxNumberOfRecords = 0;
+		char tempArray[sizeof(int)];
+		char *tempArrayPtr = (char*) tempArray;
+		for (int i = PF_PAGE_SIZE - sizeof(int); i < PF_PAGE_SIZE; i++)
+		{
+			tempArray[i-PF_PAGE_SIZE+sizeof(int)] = currentPage[i];
+		}
+		memcpy(&maxNumberOfRecords, tempArrayPtr, sizeof(int));
+
+		//for each record, see if it satisfies the iterator request
 		for (int r = 0; r < maxNumberOfRecords; r++)
 		{
 			int count = 0;
+			char currentRecord[recordSize];
+			RID tempRID;
+			tempRID.pageNum = p;
+			tempRID.slotNum = slot;
+			readTuple(tableName,tempRID, currentRecord);
 			for (unsigned int a = 0; a < att.size(); a++)
 			{
 				if (att[a].type == TypeVarChar)
 				{
-					char temp[4];
-					temp[0] = currentPage[r*recordSize+count];
-					temp[1] = currentPage[r*recordSize+count+1];
-					temp[2] = currentPage[r*recordSize+count+2];
-					temp[3] = currentPage[r*recordSize+count+3];
+					char temp[sizeof(int)];
+					for (unsigned int i =0 ; i <sizeof(int); i++)
+					{
+						temp[i] = currentRecord[count+i];
+					}
 					int num = 0;
 					char *tempPtr = (char*) temp;
 					memcpy(&num, tempPtr, sizeof(int));
-
+					// If attribute name being compared matches, compare the values
+					// If the values satisfy the comparison property, the RID is added to a list
 					if (strcasecmp(att[a].name.c_str(), conditionAttribute.c_str()) == 0 || (strcmp(conditionAttribute.c_str(), "") == 0 && compOp == NO_OP))
 					{
 						if (compOp == EQ_OP)
@@ -766,11 +1093,11 @@ RC RM::scan(const string tableName,
 				}
 				else
 				{
-					char temp[4];
-					temp[0] = currentPage[r*recordSize+count];
-					temp[1] = currentPage[r*recordSize+count+1];
-					temp[2] = currentPage[r*recordSize+count+2];
-					temp[3] = currentPage[r*recordSize+count+3];
+					char temp[sizeof(int)];
+					for (unsigned int i =0 ; i <sizeof(int); i++)
+					{
+						temp[i] = currentRecord[count+i];
+					}
 					int num = 0;
 					char *tempPtr = (char*) temp;
 					memcpy(&num, tempPtr, sizeof(int));
@@ -863,14 +1190,17 @@ RC RM::scan(const string tableName,
 
 RC RM_ScanIterator::getNextTuple(RID &rid, void *data) // { return RM_EOF; };
 {
+	// list of RIDs = RIDs that have satisfied the comparison
 	int recordSize = 0;
 	char recordBuffer[PF_PAGE_SIZE];
+	// return RM_EOF, end of file, if there are no more RIDs to extract
 	if (counter == listOfRIDs.size())
 	{
 		return RM_EOF;
 	}
 	else
 	{
+		//Extract attributes desried from record RID
 		RID rid;
 		rid = listOfRIDs[counter];
 		RM *rm = RM::Instance();
@@ -883,21 +1213,23 @@ RC RM_ScanIterator::getNextTuple(RID &rid, void *data) // { return RM_EOF; };
 		rm->readTuple(tableName, rid, record);
 		recordSize = 0;
 		int counterX = 0;
+		//Go through each attribute
 		for (unsigned int i = 0; i < attrs.size(); i++)
 		{
 			if (attrs[i].type == TypeVarChar)
 			{
-				char temp[4];
-				temp[0] = recordTemp[counterX];
-				temp[1] = recordTemp[counterX+1];
-				temp[2] = recordTemp[counterX+2];
-				temp[3] = recordTemp[counterX+3];
+				char temp[sizeof(int)];
+				for (unsigned int z =0 ; z <sizeof(int); z++)
+				{
+					temp[z] = recordTemp[counterX+z];
+				}
 				int num = 0;
 				char *tempPtr = (char*) temp;
 				memcpy(&num, tempPtr, sizeof(int));
 
 				for (unsigned int z = 0; z < attributeList.size(); z++)
 				{
+					//If the attribute is a desired attribute, add it to the result buffer
 					if (strcmp(attributeList[z].c_str(), attrs[i].name.c_str()) == 0)
 					{
 						for (unsigned int x = 0; x < num + sizeof(int); x++)
@@ -915,11 +1247,11 @@ RC RM_ScanIterator::getNextTuple(RID &rid, void *data) // { return RM_EOF; };
 				{
 					if (strcmp(attributeList[z].c_str(), attrs[i].name.c_str()) == 0)
 					{
-						char temp[4];
-						temp[0] = recordTemp[counterX];
-						temp[1] = recordTemp[counterX+1];
-						temp[2] = recordTemp[counterX+2];
-						temp[3] = recordTemp[counterX+3];
+						char temp[sizeof(int)];
+						for (unsigned int i =0 ; i <sizeof(int); i++)
+						{
+							temp[i] = recordTemp[counterX+i];
+						}
 						int num = 0;
 						char *tempPtr = (char*) temp;
 						memcpy(&num, tempPtr, sizeof(int));
@@ -938,19 +1270,18 @@ RC RM_ScanIterator::getNextTuple(RID &rid, void *data) // { return RM_EOF; };
 	}
 	char results[recordSize];
 
-
-
+	//Set the results to the resultBuffer;
 	char *resultsPTR = (char*) results;
 	for (int i = 0; i < recordSize; i++)
 	{
 		results[i] = recordBuffer[i];
 	}
 
-	char temp[4];
-	temp[0] = results[0];
-	temp[1] = results[1];
-	temp[2] = results[2];
-	temp[3] = results[3];
+	char temp[sizeof(int)];
+	for (unsigned int i =0 ; i <sizeof(int); i++)
+	{
+		temp[i] = results[i];
+	}
 	int num = 0;
 	char *tempPtr = (char*) temp;
 	memcpy(&num, tempPtr, sizeof(int));
@@ -963,69 +1294,11 @@ RC RM_ScanIterator::getNextTuple(RID &rid, void *data) // { return RM_EOF; };
 
 RC RM_ScanIterator::set(string tName, vector<RID> ridList, vector<string> aList, int cc)
 {
+	//Initialize variables
 	listOfRIDs = ridList;
 	attributeList = aList;
 	tableName = tName;
 	counter = cc;
 	return 0;
 }
-// Extra credit
-RC RM::dropAttribute(const string tableName, const string attributeName)
-{
-	return -1;
-}
 
-RC RM::addAttribute(const string tableName, const Attribute attr)
-{
-	return -1;
-}
-
-RC RM::reorganizeTable(const string tableName)
-{
-	vector<Attribute> att;
-	getAttributes(tableName, att);
-	int recordSize = 0;
-	for (unsigned int i = 0; i < att.size(); i++)
-	{
-		recordSize += att[i].length;
-	}
-
-	PF_FileHandle fh;
-	pm->OpenFile(tableName.c_str(), fh);
-	int recordsPerPage = PF_PAGE_SIZE/recordSize;
-	int numOfPages = fh.GetNumberOfPages();
-
-	for (int p = 0; p < numOfPages; p++)
-	{
-		char pageRead[PF_PAGE_SIZE];
-		fh.ReadPage(p, pageRead);
-		for (int r1 = 0; r1 < recordsPerPage; r1++)
-		{
-			char firstIntR1[4];
-			firstIntR1[0] = pageRead[r1*recordSize];
-			firstIntR1[1] = pageRead[r1*recordSize+1];
-			firstIntR1[2] = pageRead[r1*recordSize+2];
-			firstIntR1[3] = pageRead[r1*recordSize+3];
-			int firstInt = 0;
-			char *ptr = (char*) firstIntR1;
-			memcpy(&firstInt, ptr, sizeof(int));
-
-			if (firstInt == 0)
-			{
-				for (int r2 = r1; r2 < recordsPerPage - 1; r2++)
-				{
-					for (int i = 0; i < recordSize; i++)
-					{
-						char temp[recordSize];
-						temp[i] = pageRead[r2*recordSize+i+recordSize];
-						pageRead[r2*recordSize+i+recordSize] = pageRead[r2*recordSize+i];
-						pageRead[r2*recordSize+i] = temp[i];
-					}
-				}
-				fh.WritePage(p, pageRead);
-			}
-		}
-	}
-	pm->CloseFile(fh);
-	return 0;
-}

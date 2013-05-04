@@ -57,6 +57,7 @@ typedef enum { EQ_OP = 0,  // =
 //  }
 //  rmScanIterator.close();
 
+
 class RM_ScanIterator {
 public:
 	RM_ScanIterator() {counter = 0;};
@@ -74,7 +75,6 @@ private:
 	string tableName;
 	unsigned int counter;
 };
-
 
 // Record Manager
 class RM
@@ -129,8 +129,6 @@ public:
 
 	RC findFreePage(PF_FileHandle &fh1, int page_num, int offset, int length);
 
-	char *pageToWritePointer;
-
 protected:
 	RM();
 	~RM();
@@ -138,7 +136,7 @@ protected:
 private:
 	static RM *_rm;
 	PF_Manager * pm;
-	FILE *fileHandled;
+	//FILE *fileHandled;
 	PF_FileHandle scHandle;
 };
 
